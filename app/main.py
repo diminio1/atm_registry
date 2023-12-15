@@ -1,14 +1,26 @@
 from typing import List
 
-from fastapi import FastAPI, Depends, HTTPException
+import os
+from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session
-from . import crud, models, schemas
-from .models import SessionLocal
-from .models import Base, engine
+from . import crud, schemas
+from fastapi import FastAPI
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from . import models
 
 app = FastAPI()
 
-Base.metadata.create_all(bind=engine)
+
+def get_database_url():
+    return os.getenv("DATABASE_URL", "postgresql://username:password@db/db")
+
+
+engine = create_engine(get_database_url())
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Create tables here
+models.Base.metadata.create_all(bind=engine)
 
 
 # Dependency to get the database session

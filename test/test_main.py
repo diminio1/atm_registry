@@ -1,35 +1,40 @@
+# test_main.py
+import os
+
+os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+
+import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, StaticPool
 from sqlalchemy.orm import sessionmaker
 from app.main import app, get_db
-from app.models import Base
+from app import models
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# Create a new engine instance for the tests
+test_engine = create_engine(os.environ["DATABASE_URL"], connect_args={"check_same_thread": False}, poolclass=StaticPool)
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
-Base.metadata.create_all(bind=engine)
+models.Base.metadata.create_all(bind=test_engine)
 
 
+# Override get_db dependency
 def override_get_db():
+    db = TestingSessionLocal()
     try:
-        db = TestingSessionLocal()
         yield db
     finally:
         db.close()
 
 
 app.dependency_overrides[get_db] = override_get_db
-client = TestClient(app)
 
 
-def test_read_main():
-    response = client.get("/")
-    assert response.status_code == 200
-    assert response.json() == {"msg": "Hello World"}
+@pytest.fixture
+def client():
+    yield TestClient(app)
 
 
-def test_create_location():
+def test_post_and_read_main(client):
     response = client.post(
         "/locations/",
         json={
@@ -42,13 +47,20 @@ def test_create_location():
         },
     )
     assert response.status_code == 200
-    data = response.json()
-    assert data["address"] == "1095 W Pender St, Vancouver, BC V6E 2M6"
-    assert data["provider"] == "Manulife"
-    assert "id" in data
+    response = client.get("/locations/")
+    assert response.status_code == 200
+    assert response.json() == [{
+        "id": 1,
+        "geometry": {
+            "type": "Point",
+            "coordinates": [49.2849777, -123.1189405]
+        },
+        "address": "1095 W Pender St, Vancouver, BC V6E 2M6",
+        "provider": "Manulife"
+    }]
 
 
-def test_update_location():
+def test_update_location(client):
     create_response = client.post(
         "/locations/",
         json={
